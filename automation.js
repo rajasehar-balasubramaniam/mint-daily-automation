@@ -19,36 +19,40 @@ const CHAT_ID = process.env.CHAT_ID;
 
   console.log("Page loaded");
 
-  // Wait for form
-  await page.waitForSelector("body");
+  // Helper function to click element by visible text
+  async function clickByText(text) {
+    await page.evaluate((text) => {
+      const elements = [...document.querySelectorAll("*")];
+      const target = elements.find(el =>
+        el.innerText && el.innerText.trim() === text
+      );
+      if (target) target.click();
+    }, text);
+  }
 
-  // ---- Select Language ----
-  await page.click("div:has-text('english')");
+  // Wait a bit for UI to fully render
+  await page.waitForTimeout(3000);
+
+  // Select Language
+  await clickByText("english");
   await page.waitForTimeout(1000);
 
-  // ---- Select Newspaper ----
-  await page.click("div:has-text('Mint')");
+  // Select Newspaper
+  await clickByText("Mint");
   await page.waitForTimeout(1000);
 
-  // ---- Select Edition ----
-  await page.click("div:has-text('Bengaluru')");
+  // Select Edition
+  await clickByText("Bengaluru");
   await page.waitForTimeout(1000);
 
-  // ---- Click Generate ----
-  await page.click("button:has-text('Generate')");
+  // Click Generate
+  await clickByText("Generate");
   console.log("Clicked Generate");
 
-  // Wait for new tab or PDF
-  const newPagePromise = new Promise(resolve =>
-    browser.once("targetcreated", target =>
-      resolve(target.page())
-    )
-  );
+  // Wait for PDF to load
+  await page.waitForTimeout(6000);
 
-  const pdfPage = await newPagePromise;
-  await pdfPage.waitForTimeout(5000);
-
-  const pdfUrl = pdfPage.url();
+  const pdfUrl = page.url();
   console.log("PDF URL:", pdfUrl);
 
   const response = await fetch(pdfUrl);
@@ -56,7 +60,7 @@ const CHAT_ID = process.env.CHAT_ID;
 
   fs.writeFileSync("mint.pdf", Buffer.from(buffer));
 
-  // ---- Send to Telegram ----
+  // Send to Telegram
   const form = new FormData();
   form.append("chat_id", CHAT_ID);
   form.append("document", fs.createReadStream("mint.pdf"));
