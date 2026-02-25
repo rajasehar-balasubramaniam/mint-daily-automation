@@ -1,9 +1,10 @@
 {
-  "name": "mint-daily-automation",
+  "name": "mint-automation",
   "version": "1.0.0",
   "type": "module",
   "dependencies": {
-    "puppeteer": "^21.0.0",
+    "puppeteer": "^24.15.0",
+    "pdf-lib": "^1.17.1",
     "node-fetch": "^3.3.2",
     "form-data": "^4.0.0"
   }
