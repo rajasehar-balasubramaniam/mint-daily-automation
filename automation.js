@@ -1,6 +1,5 @@
 import puppeteer from "puppeteer";
 import fs from "fs";
-import path from "path";
 import fetch from "node-fetch";
 import FormData from "form-data";
 
@@ -15,17 +14,6 @@ const CHAT_ID = process.env.CHAT_ID;
 
   const page = await browser.newPage();
 
-  const downloadPath = path.resolve("./downloads");
-  if (!fs.existsSync(downloadPath)) {
-    fs.mkdirSync(downloadPath);
-  }
-
-  const client = await page.target().createCDPSession();
-  await client.send("Page.setDownloadBehavior", {
-    behavior: "allow",
-    downloadPath: downloadPath
-  });
-
   await page.goto("https://www.tradingref.com/", {
     waitUntil: "networkidle2"
   });
@@ -34,62 +22,65 @@ const CHAT_ID = process.env.CHAT_ID;
 
   await page.waitForTimeout(3000);
 
-  // Helper to click by partial text
-  async function clickByText(text) {
-    await page.evaluate((text) => {
-      const elements = [...document.querySelectorAll("*")];
-      const target = elements.find(el =>
-        el.innerText &&
-        el.innerText.toLowerCase().includes(text.toLowerCase())
-      );
-      if (target) target.click();
-    }, text);
-  }
+  // Select language, newspaper, edition if needed
+  await page.evaluate(() => {
+    const clickByText = (text) => {
+      const el = [...document.querySelectorAll("*")]
+        .find(e => e.innerText && e.innerText.includes(text));
+      if (el) el.click();
+    };
 
-  // 1️⃣ Select Language
-  await clickByText("Language");
-  await page.waitForTimeout(1000);
-  await clickByText("english");
-  await page.waitForTimeout(1000);
+    clickByText("english");
+    clickByText("Mint");
+    clickByText("Bengaluru");
+  });
 
-  // 2️⃣ Select Newspaper
-  await clickByText("Newspaper");
-  await page.waitForTimeout(1000);
-  await clickByText("Mint");
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(2000);
 
-  // 3️⃣ Select Edition
-  await clickByText("Edition");
-  await page.waitForTimeout(1000);
-  await clickByText("Bengaluru");
-  await page.waitForTimeout(1000);
+  // Listen for PDF response
+  const pdfPromise = new Promise(resolve => {
+    page.on("response", async response => {
+      const headers = response.headers();
+      const contentType = headers["content-type"] || "";
 
-  // 4️⃣ Date (Usually auto-selected as today)
-  // If date picker required, we’ll enhance later
+      if (contentType.includes("application/pdf")) {
+        console.log("PDF response detected");
+        const buffer = await response.buffer();
+        resolve(buffer);
+      }
+    });
+  });
 
-  // 5️⃣ Click Generate
-  await clickByText("Generate");
+  // Click Generate
+  await page.evaluate(() => {
+    const btn = [...document.querySelectorAll("button")]
+      .find(el => el.innerText.includes("Generate"));
+    if (btn) btn.click();
+  });
+
   console.log("Clicked Generate");
 
-  // Wait for loader + download
-  await page.waitForTimeout(25000);
+  const pdfBuffer = await pdfPromise;
 
-  const files = fs.readdirSync(downloadPath);
-
-  if (files.length === 0) {
-    console.log("No file downloaded.");
+  if (!pdfBuffer) {
+    console.log("PDF not captured.");
     await browser.close();
     return;
   }
 
-  const filePath = path.join(downloadPath, files[0]);
+  fs.writeFileSync("mint.pdf", pdfBuffer);
+  console.log("PDF saved");
 
-  console.log("Downloaded:", filePath);
+  // 🚨 Make sure secrets exist
+  if (!TELEGRAM_TOKEN || !CHAT_ID) {
+    console.log("Telegram secrets missing.");
+    await browser.close();
+    return;
+  }
 
-  // Send to Telegram
   const form = new FormData();
   form.append("chat_id", CHAT_ID);
-  form.append("document", fs.createReadStream(filePath));
+  form.append("document", fs.createReadStream("mint.pdf"));
 
   await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendDocument`, {
     method: "POST",
