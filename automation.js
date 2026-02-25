@@ -1,5 +1,5 @@
 {
-  "name": "mint-automation",
+  "name": "mint-daily-automation",
   "version": "1.0.0",
   "type": "module",
   "dependencies": {
