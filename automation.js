@@ -1,6 +1,7 @@
 import puppeteer from "puppeteer";
 import fs from "fs";
 import fetch from "node-fetch";
+import { PDFDocument } from "pdf-lib";
 import FormData from "form-data";
 
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
@@ -14,6 +15,16 @@ const CHAT_ID = process.env.CHAT_ID;
 
   const page = await browser.newPage();
 
+  const imageUrls = [];
+
+  // Capture S3 image requests
+  page.on("response", async (response) => {
+    const url = response.url();
+    if (url.includes("ht-mint-epaper-fs.s3")) {
+      imageUrls.push(url);
+    }
+  });
+
   await page.goto("https://www.tradingref.com/", {
     waitUntil: "networkidle2"
   });
@@ -22,7 +33,7 @@ const CHAT_ID = process.env.CHAT_ID;
 
   await page.waitForTimeout(3000);
 
-  // Select language, newspaper, edition if needed
+  // Select defaults if needed
   await page.evaluate(() => {
     const clickByText = (text) => {
       const el = [...document.querySelectorAll("*")]
@@ -37,20 +48,6 @@ const CHAT_ID = process.env.CHAT_ID;
 
   await page.waitForTimeout(2000);
 
-  // Listen for PDF response
-  const pdfPromise = new Promise(resolve => {
-    page.on("response", async response => {
-      const headers = response.headers();
-      const contentType = headers["content-type"] || "";
-
-      if (contentType.includes("application/pdf")) {
-        console.log("PDF response detected");
-        const buffer = await response.buffer();
-        resolve(buffer);
-      }
-    });
-  });
-
   // Click Generate
   await page.evaluate(() => {
     const btn = [...document.querySelectorAll("button")]
@@ -60,21 +57,43 @@ const CHAT_ID = process.env.CHAT_ID;
 
   console.log("Clicked Generate");
 
-  const pdfBuffer = await pdfPromise;
+  // Wait for all images to load
+  await page.waitForTimeout(25000);
 
-  if (!pdfBuffer) {
-    console.log("PDF not captured.");
-    await browser.close();
+  await browser.close();
+
+  if (imageUrls.length === 0) {
+    console.log("No images captured.");
     return;
   }
 
-  fs.writeFileSync("mint.pdf", pdfBuffer);
-  console.log("PDF saved");
+  console.log("Captured images:", imageUrls.length);
 
-  // 🚨 Make sure secrets exist
+  // Remove duplicates
+  const uniqueImages = [...new Set(imageUrls)];
+
+  const pdfDoc = await PDFDocument.create();
+
+  for (const url of uniqueImages) {
+    const res = await fetch(url);
+    const imgBytes = await res.arrayBuffer();
+    const image = await pdfDoc.embedJpg(imgBytes);
+    const page = pdfDoc.addPage([image.width, image.height]);
+    page.drawImage(image, {
+      x: 0,
+      y: 0,
+      width: image.width,
+      height: image.height
+    });
+  }
+
+  const pdfBytes = await pdfDoc.save();
+  fs.writeFileSync("mint.pdf", pdfBytes);
+
+  console.log("PDF created");
+
   if (!TELEGRAM_TOKEN || !CHAT_ID) {
     console.log("Telegram secrets missing.");
-    await browser.close();
     return;
   }
 
@@ -88,6 +107,4 @@ const CHAT_ID = process.env.CHAT_ID;
   });
 
   console.log("Sent to Telegram");
-
-  await browser.close();
 })();
